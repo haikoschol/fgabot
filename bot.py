@@ -11,8 +11,7 @@ HASHTAGS = os.environ.get('FGABOT_HASHTAGS',
                           'ccf5352d004e411a8c45e4079f90a0c3').split(',')
 
 ADVICE_BACKEND = os.environ.get(
-    'FGABOT_ADVICE_BACKEND',
-    'https://goodfuckingadvice.herokuapp.com/advices.json')
+    'FGABOT_ADVICE_BACKEND', 'http://fuckinggreatadvice.com/advices.json')
 
 
 class TwitterCredentials:
