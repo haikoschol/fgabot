@@ -13,6 +13,10 @@ HASHTAGS = os.environ.get('FGABOT_HASHTAGS',
 ADVICE_BACKEND = os.environ.get(
     'FGABOT_ADVICE_BACKEND', 'http://fuckinggreatadvice.com/advices.json')
 
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+FONT_PATH = os.path.join(BASE_DIR, 'bnr.ttf')
+BG_PATH = os.path.join(BASE_DIR, 'bg.png')
+
 
 class TwitterCredentials:
     @classmethod
@@ -34,10 +38,36 @@ class TwitterCredentials:
                 self.oauth_token_secret]
 
 
+class ImageRenderer:
+    def __init__(self, convert_path, composite_path, background_path,
+                 font_path, output_dir='/tmp'):
+
+        caption_path = os.path.join(output_dir, 'caption.png')
+
+        self.convert_cmd = ('%s -font %s -background transparent -fill white '
+                            '-size 900x400 caption:"{}" %s') % (convert_path,
+                                                                font_path,
+                                                                caption_path)
+
+        self.image_path = os.path.join(output_dir, 'image.png')
+
+        self.composite_cmd = '{} -geometry +20+20 {} {} {}'.format(
+            composite_path, caption_path, background_path, self.image_path)
+
+    def render(self, text):
+        os.system(self.convert_cmd.format(text))
+        os.system(self.composite_cmd)
+        return self.image_path
+
+
 class Bot(TwythonStreamer):
-    def __init__(self, twitter_credentials, hashtags, advice_backend, logger):
+
+    def __init__(self, twitter_credentials, hashtags, advice_backend,
+                 image_renderer, logger):
+
         self.hashtags = hashtags
         self.advice_backend = advice_backend
+        self.image_renderer = image_renderer
         self.logger = logger
         super().__init__(*twitter_credentials.as_list())
         self.twitter = Twython(*twitter_credentials.as_list())
@@ -53,9 +83,15 @@ class Bot(TwythonStreamer):
     def on_success(self, data):
         try:
             name = data['user']['screen_name']
-            tweet = '@{} {}'.format(name, self.get_advice())
-            self.logger.debug('sending tweet: "%s"', tweet)
-            self.twitter.update_status(status=tweet)
+            advice = self.get_advice()
+            image_path = self.image_renderer.render(advice)
+            self.logger.debug('user: "%s" advice: %s', name, advice)
+
+            with open(image_path, 'rb') as image:
+                response = self.twitter.upload_media(media=image)
+
+                self.twitter.update_status(status='@{}'.format(name),
+                                           media_ids=[response['media_id']])
         except Exception as e:
             self.logger.exception(data)
 
@@ -78,7 +114,13 @@ def main():
     fmt = '[%(asctime)s] %(name)s %(levelname)s %(message)s'
     logging.basicConfig(format=fmt, level=lvl)
     logger = logging.getLogger('FGAbot')
-    bot = Bot(twitter_credentials, HASHTAGS, ADVICE_BACKEND, logger)
+
+    convert_path = os.environ.get('FGABOT_CONVERT_PATH', '/usr/bin/convert')
+    composite_path = os.environ.get('FGABOT_COMPOSITE_PATH',
+                                    '/usr/bin/composite')
+
+    renderer = ImageRenderer(convert_path, composite_path, BG_PATH, FONT_PATH)
+    bot = Bot(twitter_credentials, HASHTAGS, ADVICE_BACKEND, renderer, logger)
 
     shutdown = make_term_handler(bot, logging)
     signal.signal(signal.SIGTERM, shutdown)
